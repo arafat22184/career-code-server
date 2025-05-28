@@ -40,7 +40,7 @@ async function run() {
 
       const query = {};
       if (email) {
-        query.hr_email = { email };
+        query.hr_email = email;
       }
 
       const cursor = jobsCollection.find(query);
