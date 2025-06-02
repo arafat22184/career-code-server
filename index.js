@@ -2,12 +2,18 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 const jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
 const port = process.env.PORT || 3000;
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"], //your frontend
+    credentials: true, //allow cookies
+  })
+);
 app.use(express.json());
 
 app.get("/", (req, res) => {
@@ -36,13 +42,35 @@ async function run() {
       .collection("applicatons");
 
     // JWT token related Api
-    app.post("/jwt", async (req, res) => {
-      const { email } = req.body;
-      const user = { email };
 
-      const token = jwt.sign(user, "secret", { expiresIn: "1h" });
-      res.send({ token });
+    // HTTP COOKIE ONLY
+    app.post("/jwt", async (req, res) => {
+      const userData = req.body;
+
+      const token = jwt.sign(userData, process.env.JWT_ACCESS_SECRET, {
+        expiresIn: "1d",
+      });
+
+      // Set token in the Cookies
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: false,
+      });
+
+      res.send({ success: true });
     });
+
+    // Local storage way
+    // app.post("/jwt", async (req, res) => {
+    //   const { email } = req.body;
+    //   const user = { email };
+
+    //   const token = jwt.sign(user, process.env.JWT_ACCESS_SECRET, {
+    //     expiresIn: "1h",
+    //   });
+
+    //   res.send({ token });
+    // });
 
     // JOBS API
     app.get("/jobs", async (req, res) => {
