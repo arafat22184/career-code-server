@@ -15,6 +15,51 @@ app.use(
   })
 );
 app.use(express.json());
+app.use(cookieParser());
+
+// Firebase verification JWT
+var admin = require("firebase-admin");
+
+var serviceAccount = require("./firebase-admin-key.json");
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+// VERIFY FIREBASE TOKEN
+const verifyFirebaseToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  const userInfo = await admin.auth().verifyIdToken(token);
+
+  req.tokenEmail = userInfo.email;
+  next();
+};
+
+const verifyToken = (req, res, next) => {
+  const token = req?.cookies?.token;
+
+  // check token exists or not
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+
+  // verify token
+  jwt.verify(token, process.env.JWT_ACCESS_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "unauthorized access" });
+    }
+
+    req.decoded = decoded;
+
+    next();
+  });
+};
 
 app.get("/", (req, res) => {
   res.send("Career Code Cooking");
@@ -131,8 +176,19 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/applications", async (req, res) => {
+    app.get("/applications", verifyFirebaseToken, async (req, res) => {
       const email = req.query.email;
+
+      if (req.tokenEmail !== email) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+
+      // VerifyToken http cookie
+      // http cookie check decoded email and user email same or not
+      // if (email !== req.decoded.email) {
+      //   return res.status(403).send({ message: "forbidden access" });
+      // }
+
       const query = { applicant: email };
       const result = await applicationCollection.find(query).toArray();
 
