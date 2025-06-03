@@ -4,6 +4,9 @@ const app = express();
 const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 const port = process.env.PORT || 3000;
+const admin = require("firebase-admin");
+const serviceAccount = require("./firebase-admin-key.json");
+
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 
@@ -18,9 +21,6 @@ app.use(express.json());
 app.use(cookieParser());
 
 // Firebase verification JWT
-var admin = require("firebase-admin");
-
-var serviceAccount = require("./firebase-admin-key.json");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -28,16 +28,27 @@ admin.initializeApp({
 
 // VERIFY FIREBASE TOKEN
 const verifyFirebaseToken = async (req, res, next) => {
-  const authHeader = req.headers.authorization;
+  const authHeader = req?.headers?.authorization;
   const token = authHeader.split(" ")[1];
 
   if (!token) {
     return res.status(401).send({ message: "unauthorized access" });
   }
 
-  const userInfo = await admin.auth().verifyIdToken(token);
+  try {
+    const decoded = await admin.auth().verifyIdToken(token);
 
-  req.tokenEmail = userInfo.email;
+    req.decoded = decoded;
+    next();
+  } catch (error) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+};
+
+const verifyTokenEmail = (req, res, next) => {
+  if (req.query.email !== req.decoded.email) {
+    return res.status(403).send({ message: "forbidden access" });
+  }
   next();
 };
 
@@ -139,21 +150,27 @@ async function run() {
     //   res.send(result);
     // });
 
-    app.get("/jobs/applications", async (req, res) => {
-      const email = req.query.email;
-      const query = { hr_email: email };
-      const jobs = await jobsCollection.find(query).toArray();
+    app.get(
+      "/jobs/applications",
+      verifyFirebaseToken,
+      verifyTokenEmail,
+      async (req, res) => {
+        const email = req.query.email;
 
-      // Should use aggregate to have optimum data fetching
-      for (const job of jobs) {
-        const applicationQuery = { jobId: job._id.toString() };
-        const application_count = await applicationCollection.countDocuments(
-          applicationQuery
-        );
-        job.application_count = application_count;
+        const query = { hr_email: email };
+        const jobs = await jobsCollection.find(query).toArray();
+
+        // Should use aggregate to have optimum data fetching
+        for (const job of jobs) {
+          const applicationQuery = { jobId: job._id.toString() };
+          const application_count = await applicationCollection.countDocuments(
+            applicationQuery
+          );
+          job.application_count = application_count;
+        }
+        res.send(jobs);
       }
-      res.send(jobs);
-    });
+    );
 
     app.get("/jobs/:id", async (req, res) => {
       const id = req.params.id;
@@ -176,34 +193,35 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/applications", verifyFirebaseToken, async (req, res) => {
-      const email = req.query.email;
+    app.get(
+      "/applications",
+      verifyFirebaseToken,
+      verifyTokenEmail,
+      async (req, res) => {
+        const email = req.query.email;
 
-      if (req.tokenEmail !== email) {
-        return res.status(403).send({ message: "forbidden access" });
+        // VerifyToken http cookie
+        // http cookie check decoded email and user email same or not
+        // if (email !== req.decoded.email) {
+        //   return res.status(403).send({ message: "forbidden access" });
+        // }
+
+        const query = { applicant: email };
+        const result = await applicationCollection.find(query).toArray();
+
+        // Bad way to aggregate Data
+        for (const application of result) {
+          const jobId = application.jobId;
+          const jobQuery = { _id: new ObjectId(jobId) };
+          const job = await jobsCollection.findOne(jobQuery);
+          application.company = job.company;
+          application.title = job.title;
+          application.company_logo = job.company_logo;
+        }
+
+        res.send(result);
       }
-
-      // VerifyToken http cookie
-      // http cookie check decoded email and user email same or not
-      // if (email !== req.decoded.email) {
-      //   return res.status(403).send({ message: "forbidden access" });
-      // }
-
-      const query = { applicant: email };
-      const result = await applicationCollection.find(query).toArray();
-
-      // Bad way to aggregate Data
-      for (const application of result) {
-        const jobId = application.jobId;
-        const jobQuery = { _id: new ObjectId(jobId) };
-        const job = await jobsCollection.findOne(jobQuery);
-        application.company = job.company;
-        application.title = job.title;
-        application.company_logo = job.company_logo;
-      }
-
-      res.send(result);
-    });
+    );
 
     app.get("/applications/job/:id", async (req, res) => {
       const id = req.params.id;
