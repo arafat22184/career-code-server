@@ -29,6 +29,9 @@ admin.initializeApp({
 // VERIFY FIREBASE TOKEN
 const verifyFirebaseToken = async (req, res, next) => {
   const authHeader = req?.headers?.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
   const token = authHeader.split(" ")[1];
 
   if (!token) {
@@ -52,6 +55,7 @@ const verifyTokenEmail = (req, res, next) => {
   next();
 };
 
+// http cookie method
 const verifyToken = (req, res, next) => {
   const token = req?.cookies?.token;
 
